@@ -8,15 +8,13 @@ import torch.nn as nn
 import torchvision.transforms as transforms
 from sklearn.model_selection import train_test_split
 from torchvision import models
-from torch.optim.lr_scheduler import CosineAnnealingLR, ReduceLROnPlateau
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.metrics import mean_squared_error
 
 #------Config------
-batch_size = 16
+batch_size = 8
 learning_rate = 0.0001
 num_epochs = 300  # Epoch száma
-
-
 
 
 # test_run beállítása
@@ -160,42 +158,26 @@ model = MultiTaskRegressor()
 focus_criterion = nn.SmoothL1Loss()
 class_criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-#scheduler = CosineAnnealingLR(optimizer, T_max=10)
-scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5)
+scheduler = CosineAnnealingLR(optimizer, T_max=10)
 
 
 # Tanítási ciklus az új hyperparaméterekkel
-# Dynamic task weighting
-lambda_focus = 0.5
-lambda_class = 0.5
-
 for epoch in range(num_epochs):
     model.train()
     train_focus_loss = 0
     train_class_loss = 0
-
     for images, focus_targets, class_targets in train_loader:
         optimizer.zero_grad()
         focus_output, class_output = model(images)
-
-        # Compute losses
         focus_loss = focus_criterion(focus_output.view(-1), focus_targets)
         class_loss = class_criterion(class_output, class_targets)
-
-        # Combine losses with dynamic weights
-        loss = lambda_focus * focus_loss + lambda_class * class_loss
+        loss = focus_loss + class_loss
         loss.backward()
         optimizer.step()
-
         train_focus_loss += focus_loss.item()
         train_class_loss += class_loss.item()
 
-    # Adjust weights (if needed)
-    if epoch % 10 == 0:  # Example: update weights every 10 epochs
-        lambda_focus = 1.0 / (1.0 + epoch / 50)
-        lambda_class = 1.0 - lambda_focus
-
-
+    scheduler.step()
 
     # Validációs fázis
     model.eval()
@@ -209,27 +191,10 @@ for epoch in range(num_epochs):
             val_focus_loss += focus_loss.item()
             val_class_loss += class_loss.item()
 
-    val_focus_loss /= len(val_loader)
-    val_class_loss /= len(val_loader)
-    total_val_loss = val_focus_loss + val_class_loss
-
     print(
         f"Epoch {epoch + 1}/{num_epochs}, Train Focus Loss: {train_focus_loss / len(train_loader)}, "
         f"Train Class Loss: {train_class_loss / len(train_loader)}, "
-        f"Val Focus Loss: {val_focus_loss / len(val_loader)}, Val Class Loss: {val_class_loss / len(val_loader)}, "
-        f"LR: {scheduler.get_last_lr()[0]}")
-
-    # Tanulási ráta csökkentése, ha szükséges
-    if val_focus_loss > 0.5 and scheduler.get_last_lr()[0] > 1e-4:
-        for param_group in optimizer.param_groups:
-            param_group['lr'] *= 0.5  # Csökkentjük a tanulási rátát
-            print(f"Learning rate adjusted to: {param_group['lr']:.6f}")
-
-    scheduler.step(total_val_loss)
-
-model_save_path = f"model_epochs_{num_epochs}_batch_{train_batch_size}.pth"
-torch.save(model.state_dict(), model_save_path)
-print(f"Model saved to {model_save_path}")
+        f"Val Focus Loss: {val_focus_loss / len(val_loader)}, Val Class Loss: {val_class_loss / len(val_loader)}")
 
 # Teszt DataLoader létrehozása
 all_files = os.listdir(test_data_path)
@@ -273,7 +238,7 @@ if test_run:
     # RMSE kiszámítása
     rmse = mean_squared_error(ground_truth['Expected'], ordered_predictions, squared=False)
     print(f"Root Mean Squared Error (RMSE): {rmse}")
-    #predict_and_save_results(model, test_loader)
+    predict_and_save_results(model, test_loader)
 
 else:
     # Predictions.csv mentése, ha nem teszt módban fut

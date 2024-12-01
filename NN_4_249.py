@@ -87,7 +87,7 @@ model = FocusDistanceRegressor()
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-num_epochs = 10
+num_epochs = 2
 
 for epoch in range(num_epochs):
     model.train()
@@ -126,6 +126,7 @@ def predict_and_save_results(model, test_loader, output_file='predictions.csv'):
     with torch.no_grad():
         for images in test_loader:
             outputs = model(images)
+            print(outputs)
             predictions = outputs.view(-1).round().abs().int()
             results.extend(predictions.tolist())
 
